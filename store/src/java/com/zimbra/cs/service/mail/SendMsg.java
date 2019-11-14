@@ -37,6 +37,8 @@ import org.dom4j.QName;
 
 import com.zimbra.client.ZMailbox;
 import com.zimbra.common.account.Key;
+import com.zimbra.common.account.Key.AccountBy;
+import com.zimbra.common.account.ProvisioningConstants;
 import com.zimbra.common.auth.ZAuthToken;
 import com.zimbra.common.calendar.ZCalendar.ICalTok;
 import com.zimbra.common.calendar.ZCalendar.ZCalendarBuilder;
@@ -55,11 +57,14 @@ import com.zimbra.common.util.Constants;
 import com.zimbra.common.util.Log;
 import com.zimbra.common.util.LogFactory;
 import com.zimbra.common.util.Pair;
+import com.zimbra.common.util.StringUtil;
 import com.zimbra.common.util.ZimbraLog;
 import com.zimbra.common.zmime.ZMimeMessage;
 import com.zimbra.cs.account.Account;
 import com.zimbra.cs.account.AuthToken;
+import com.zimbra.cs.account.Identity;
 import com.zimbra.cs.account.Provisioning;
+import com.zimbra.cs.account.accesscontrol.generated.RightConsts;
 import com.zimbra.cs.mailbox.CalendarItem;
 import com.zimbra.cs.mailbox.MailItem;
 import com.zimbra.cs.mailbox.MailSender;
@@ -135,6 +140,23 @@ public class SendMsg extends MailDocumentHandler {
                String draftId = msgElem.getAttribute(MailConstants.A_DRAFT_ID, null);
                ItemId iidDraft = draftId == null ? null : new ItemId(draftId, zsc);
                boolean sendFromDraft = msgElem.getAttributeBool(MailConstants.A_SEND_FROM_DRAFT, false);
+
+               /**
+                * If the logged in user has any Persona(identity) added to his/her account 
+                * other than the DEFAULT one which is of his/her own and that identity has
+                * sendAs or sendOnBehalf rights, get the target mailbox from the identityId.
+                */
+               if (identityId != null) {
+                   Identity identity = Provisioning.getInstance().get(octxt.getAuthenticatedUser(), Key.IdentityBy.id, identityId);
+                   if (identity != null &&
+                           !identity.getAttr(Provisioning.A_zimbraPrefIdentityName).equals(ProvisioningConstants.DEFAULT_IDENTITY_NAME) &&
+                           !StringUtil.isNullOrEmpty(identity.getAttr(Provisioning.A_zimbraPrefFromAddressType)) &&
+                           (identity.getAttr(Provisioning.A_zimbraPrefFromAddressType).equals(RightConsts.RT_sendAs) ||
+                                   identity.getAttr(Provisioning.A_zimbraPrefFromAddressType).equals(RightConsts.RT_sendOnBehalfOf))) {
+                       Account targetAccount = Provisioning.getInstance().get(AccountBy.name, identity.getAttr(Provisioning.A_zimbraPrefFromAddress));
+                       mbox = MailboxManager.getInstance().getMailboxByAccount(targetAccount);
+                   }
+               }
 
                SendState state = SendState.NEW;
                ItemId savedMsgId = null;
